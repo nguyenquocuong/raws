@@ -79,6 +79,30 @@ impl EcsExecChecker {
                     PolicyEvaluationDecisionType::Allowed.to_string().green(),
                 decision => decision.to_string().yellow(),
             }
+        );
+        println!(
+            "\tssm:StartSession denied?: {}",
+            match iam_client
+                .simulate_principal_policy()
+                .policy_source_arn(caller_identity.arn().unwrap())
+                .action_names("ssm:StartSession")
+                .resource_arns(format!(
+                    "arn:aws:ecs:{}:{}:task/{}/{}",
+                    config.region().unwrap(),
+                    caller_identity.account().unwrap(),
+                    self.cluster_name,
+                    self.ecs_task_id
+                ))
+                .send()
+                .await
+                .unwrap()
+                .evaluation_results()[0]
+                .eval_decision()
+            {
+                PolicyEvaluationDecisionType::Allowed =>
+                    PolicyEvaluationDecisionType::Allowed.to_string().yellow(),
+                decision => decision.to_string().green(),
+            }
         )
     }
 }
