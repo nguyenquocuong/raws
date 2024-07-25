@@ -1,8 +1,11 @@
+use async_trait::async_trait;
 use aws_sdk_ecs::types::{ClusterField, LaunchType};
 use aws_sdk_iam::types::PolicyEvaluationDecisionType;
 use clap::Args;
 use colored::Colorize;
 use version_compare::{compare_to, Cmp};
+
+use crate::traits::CommandExecute;
 
 #[derive(Debug, Args)]
 #[command(version, about, long_about = None)]
@@ -16,8 +19,9 @@ pub struct EcsExecChecker {
     ecs_task_id: String,
 }
 
-impl EcsExecChecker {
-    pub async fn execute(&self) {
+#[async_trait]
+impl CommandExecute for EcsExecChecker {
+    async fn execute(&self) -> Result<(), std::io::Error> {
         println!("{self:?}");
 
         let config = aws_config::load_from_env().await;
@@ -189,5 +193,7 @@ impl EcsExecChecker {
                 false => "NO".red(),
             }
         );
+
+        Ok(())
     }
 }
