@@ -7,21 +7,36 @@ use ratatui::{
 };
 
 #[derive(Default)]
-pub struct ContextWidget {}
+pub struct ContextWidget {
+    iam_arn: String,
+}
 
-impl ContextWidget {}
+impl ContextWidget {
+    pub fn iam_arn(mut self, arn: String) -> Self {
+        self.iam_arn = arn;
+        self
+    }
+}
 
 impl Widget for ContextWidget {
     fn render(self, area: Rect, buf: &mut Buffer)
     where
         Self: Sized,
     {
-        Paragraph::new("IAM ARN:")
-            //.block(
-            //    Block::bordered().title(" Context "),
-            //    //.title_alignment(Alignment::Center),
-            //)
-            .render(area, buf);
+        let outer_area = area;
+
+        let [title_area, value_area] =
+            Layout::horizontal([Constraint::Percentage(10), Constraint::Percentage(90)])
+                .areas(outer_area);
+
+        let title_items: Vec<ListItem> = vec![
+            ListItem::new(Line::from("IAM ARN:")),
+            ListItem::new(Line::from("Cluster:")),
+        ];
+        let value_items: Vec<ListItem> = vec![ListItem::new(Line::yellow(self.iam_arn.into()))];
+
+        List::new(title_items).render(title_area, buf);
+        List::new(value_items).render(value_area, buf);
     }
 }
 
@@ -61,9 +76,6 @@ impl<'a> Widget for KeybindingsWidget<'a> {
         Self: Sized,
     {
         let outer_area = area;
-        let outer_block = Block::bordered().title("Outer");
-        let left_inner_block = Block::bordered().title("Left");
-        let right_inner_block = Block::bordered().title("Right");
 
         let [keybinding_area, description_area] =
             Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
@@ -77,16 +89,11 @@ impl<'a> Widget for KeybindingsWidget<'a> {
         let description_items: Vec<ListItem> = self
             .keybindings
             .iter()
-            .map(|item| ListItem::new(Line::from(item.description)))
+            .map(|item| ListItem::new(Line::dark_gray(item.description.into())))
             .collect();
 
-        //outer_block.render(outer_area, buf);
-        List::new(keybinding_items)
-            //.block(left_inner_block)
-            .render(keybinding_area, buf);
-        List::new(description_items)
-            //.block(right_inner_block)
-            .render(description_area, buf);
+        List::new(keybinding_items).render(keybinding_area, buf);
+        List::new(description_items).render(description_area, buf);
     }
 }
 
