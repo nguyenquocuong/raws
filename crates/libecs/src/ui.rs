@@ -26,12 +26,12 @@ impl Widget for ContextWidget {
         let outer_area = area;
 
         let [title_area, value_area] =
-            Layout::horizontal([Constraint::Percentage(10), Constraint::Percentage(90)])
+            Layout::horizontal([Constraint::Length(9), Constraint::Percentage(100)])
                 .areas(outer_area);
 
         let title_items: Vec<ListItem> = vec![
-            ListItem::new(Line::from("IAM ARN:")),
-            ListItem::new(Line::from("Cluster:")),
+            ListItem::new(Line::from("IAM ARN: ")),
+            ListItem::new(Line::from("Cluster: ")),
         ];
         let value_items: Vec<ListItem> = vec![ListItem::new(Line::yellow(self.iam_arn.into()))];
 
@@ -78,7 +78,7 @@ impl<'a> Widget for KeybindingsWidget<'a> {
         let outer_area = area;
 
         let [keybinding_area, description_area] =
-            Layout::horizontal([Constraint::Percentage(50), Constraint::Percentage(50)])
+            Layout::horizontal([Constraint::Length(4), Constraint::Percentage(100)])
                 .areas(outer_area);
 
         let keybinding_items: Vec<ListItem> = self
