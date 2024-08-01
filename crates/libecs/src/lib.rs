@@ -1,3 +1,4 @@
+mod component;
 mod ui;
 
 pub mod app;

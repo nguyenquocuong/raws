@@ -13,6 +13,7 @@ pub struct EcsArgs;
 #[async_trait]
 impl CommandExecute for EcsArgs {
     async fn execute(&self) -> Result<()> {
-        run_app().await
+        run_app().await.unwrap();
+        Ok(())
     }
 }

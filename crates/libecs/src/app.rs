@@ -1,20 +1,30 @@
+use color_eyre::Result;
 use std::io::stdout;
 
 use aws_config::SdkConfig;
+use crossterm::event::{Event as CrosstermEvent, EventStream, KeyCode, KeyEvent};
+use futures::{FutureExt, StreamExt};
 use ratatui::{
     backend::{Backend, CrosstermBackend},
     crossterm::{
-        event::{self, KeyCode, KeyEventKind},
+        event::KeyEventKind,
         terminal::{disable_raw_mode, enable_raw_mode, EnterAlternateScreen, LeaveAlternateScreen},
         ExecutableCommand,
     },
     layout::{Constraint, Layout, Rect},
     Frame, Terminal,
 };
+use tokio::{
+    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+    task::JoinHandle,
+};
 
-use crate::ui::{ContentWidget, ContextWidget, KeybindingsWidget, LogoWidget};
+use crate::{
+    component::{Action, Component, Event},
+    ui::{ContentWidget, Context, KeybindingsWidget, LogoWidget},
+};
 
-pub async fn run_app() -> Result<(), std::io::Error> {
+pub async fn run_app() -> Result<()> {
     stdout().execute(EnterAlternateScreen)?;
     enable_raw_mode()?;
     let mut terminal = Terminal::new(CrosstermBackend::new(stdout()))?;
@@ -24,7 +34,7 @@ pub async fn run_app() -> Result<(), std::io::Error> {
     let mut app = App::new(config);
 
     app.get_caller_identity().await;
-    app.run(&mut terminal)?;
+    app.run(&mut terminal).await?;
 
     stdout().execute(LeaveAlternateScreen)?;
     disable_raw_mode()?;
@@ -32,48 +42,125 @@ pub async fn run_app() -> Result<(), std::io::Error> {
     Ok(())
 }
 
-#[derive(Clone)]
 pub struct App {
     config: SdkConfig,
     iam_arn: String,
-    exit: bool,
+    should_quit: bool,
+    task: JoinHandle<()>,
+    event_tx: UnboundedSender<Event>,
+    event_rx: UnboundedReceiver<Event>,
+    action_tx: UnboundedSender<Action>,
+    action_rx: UnboundedReceiver<Action>,
 }
 
 impl App {
     pub fn new(config: SdkConfig) -> Self {
+        let (event_tx, event_rx) = mpsc::unbounded_channel();
+        let (action_tx, action_rx) = mpsc::unbounded_channel();
+
         Self {
             config,
             iam_arn: String::from(""),
-            exit: false,
+            should_quit: false,
+            task: tokio::spawn(async {}),
+            event_tx,
+            event_rx,
+            action_tx,
+            action_rx,
         }
     }
 
-    pub fn run(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<(), std::io::Error> {
-        while !self.exit {
+    pub async fn run(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
+        let event_loop = Self::event_loop(self.event_tx.clone());
+
+        self.task = tokio::spawn(async {
+            event_loop.await;
+        });
+
+        loop {
             self.draw(terminal)?;
-            self.handle_events()?;
+            self.handle_events().await?;
+            self.handle_actions().await?;
+            if self.should_quit {
+                break;
+            }
         }
+        self.task.abort();
         Ok(())
     }
 
-    fn exit(&mut self) {
-        self.exit = true
+    async fn event_loop(event_tx: UnboundedSender<Event>) {
+        let mut event_stream = EventStream::new();
+
+        event_tx
+            .send(Event::Init)
+            .expect("failed to send init event");
+        loop {
+            let event = tokio::select! {
+                crossterm_event = event_stream.next().fuse() => match crossterm_event {
+                    Some(Ok(event)) => match event {
+                        CrosstermEvent::Key(key) if key.kind == KeyEventKind::Press => Event::Key(key),
+                        CrosstermEvent::Mouse(mouse) => Event::Mouse(mouse),
+                        CrosstermEvent::Resize(x, y) => Event::Resize(x, y),
+                        CrosstermEvent::FocusLost => Event::FocusLost,
+                        CrosstermEvent::FocusGained => Event::FocusGained,
+                        CrosstermEvent::Paste(s) => Event::Paste(s),
+                        _ => continue,
+                    },
+                    Some(Err(_)) => Event::Error,
+                    None => break,
+                }
+            };
+            if event_tx.send(event).is_err() {
+                break;
+            }
+        }
     }
 
-    fn draw(&self, terminal: &mut Terminal<impl Backend>) -> Result<(), std::io::Error> {
+    fn draw(&self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
         terminal.draw(|frame| self.render_frame(frame))?;
         Ok(())
     }
 
-    fn handle_events(&mut self) -> Result<(), std::io::Error> {
-        if event::poll(std::time::Duration::from_millis(16))? {
-            if let event::Event::Key(key) = event::read()? {
-                if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
-                    self.exit();
-                    return Ok(());
-                }
+    async fn handle_events(&mut self) -> Result<()> {
+        let Some(event) = self.event_rx.recv().await else {
+            return Ok(());
+        };
+        let action_tx = self.action_tx.clone();
+
+        match event {
+            Event::Quit => action_tx.send(Action::Quit)?,
+            Event::Tick => action_tx.send(Action::Tick)?,
+            Event::Key(key) => self.handle_key_event(key)?,
+            _ => {}
+        };
+
+        Ok(())
+    }
+
+    fn handle_key_event(&mut self, key: KeyEvent) -> Result<()> {
+        let action_tx = self.action_tx.clone();
+
+        if key.kind == KeyEventKind::Press && key.code == KeyCode::Char('q') {
+            action_tx.send(Action::Quit)?;
+        }
+
+        Ok(())
+    }
+
+    async fn handle_actions(&mut self) -> Result<()> {
+        while let Ok(action) = self.action_rx.try_recv() {
+            if action != Action::Tick {
+                println!("{action:?}");
+            }
+
+            match action {
+                Action::Quit => self.should_quit = true,
+                Action::Render => {}
+                _ => {}
             }
         }
+
         Ok(())
     }
 
@@ -94,10 +181,12 @@ impl App {
         ])
         .areas(area);
 
-        frame.render_widget(
-            ContextWidget::default().iam_arn(self.iam_arn.clone()),
-            context_area,
-        );
+        let mut context = Context::default();
+        context.init().unwrap();
+        context
+            .iam_arn(self.iam_arn.clone())
+            .draw(frame, context_area);
+
         frame.render_widget(KeybindingsWidget::default(), keybindings_area);
         frame.render_widget(LogoWidget::default(), logo_area);
     }
@@ -108,7 +197,7 @@ impl App {
 }
 
 impl App {
-    pub async fn get_caller_identity(&mut self) {
+    async fn get_caller_identity(&mut self) {
         let sts_client = aws_sdk_sts::Client::new(&self.config);
 
         let caller_identity = sts_client.get_caller_identity().send().await.unwrap();
