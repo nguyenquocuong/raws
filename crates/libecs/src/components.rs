@@ -2,6 +2,9 @@ use color_eyre::Result;
 use ratatui::crossterm::event::{KeyEvent, MouseEvent};
 use ratatui::layout::Rect;
 use ratatui::Frame;
+use tokio::sync::mpsc::UnboundedSender;
+
+pub mod clusters;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
@@ -23,10 +26,15 @@ pub enum Action {
     Quit,
     Tick,
     Render,
+    GetClusters,
 }
 
 pub trait Component {
     fn init(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
+        let _ = tx; // to appease clippy
         Ok(())
     }
     fn handle_events(&mut self, event: Option<Event>) -> Action {

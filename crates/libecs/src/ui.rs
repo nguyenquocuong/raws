@@ -1,13 +1,13 @@
 use ratatui::{
     buffer::Buffer,
-    layout::{Alignment, Constraint, Layout, Rect},
+    layout::{Constraint, Layout, Rect},
     style::Stylize,
     text::Line,
-    widgets::{Block, List, ListItem, Paragraph, Widget},
+    widgets::{List, ListItem, Paragraph, Widget},
     Frame,
 };
 
-use crate::component::Component;
+use crate::components::Component;
 
 #[derive(Default)]
 pub struct Context {
@@ -110,35 +110,6 @@ impl Widget for LogoWidget {
     {
         Paragraph::new("")
             //.block(Block::bordered().title(" LOGO "))
-            .render(area, buf);
-    }
-}
-
-pub struct ContentWidget {
-    title: String,
-}
-
-impl Default for ContentWidget {
-    fn default() -> Self {
-        ContentWidget {
-            title: "Clusters".to_string(),
-        }
-    }
-}
-
-impl ContentWidget {}
-
-impl Widget for ContentWidget {
-    fn render(self, area: Rect, buf: &mut Buffer)
-    where
-        Self: Sized,
-    {
-        //List::new([])
-        //.block(
-        Block::bordered()
-            .title(format!(" {} ", self.title))
-            .title_alignment(Alignment::Center)
-            //)
             .render(area, buf);
     }
 }

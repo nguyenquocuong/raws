@@ -1,4 +1,4 @@
-mod component;
+mod components;
 mod ui;
 
 pub mod app;

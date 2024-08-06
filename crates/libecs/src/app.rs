@@ -20,8 +20,8 @@ use tokio::{
 };
 
 use crate::{
-    component::{Action, Component, Event},
-    ui::{ContentWidget, Context, KeybindingsWidget, LogoWidget},
+    components::{clusters::Clusters, Action, Component, Event},
+    ui::{Context, KeybindingsWidget, LogoWidget},
 };
 
 pub async fn run_app() -> Result<()> {
@@ -33,7 +33,7 @@ pub async fn run_app() -> Result<()> {
     let config = aws_config::load_from_env().await;
     let mut app = App::new(config);
 
-    app.get_caller_identity().await;
+    //app.get_caller_identity().await;
     app.run(&mut terminal).await?;
 
     stdout().execute(LeaveAlternateScreen)?;
@@ -71,6 +71,8 @@ impl App {
     }
 
     pub async fn run(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
+        self.get_caller_identity().await;
+
         let event_loop = Self::event_loop(self.event_tx.clone());
 
         self.task = tokio::spawn(async {
@@ -192,7 +194,7 @@ impl App {
     }
 
     fn draw_content_block(&self, frame: &mut Frame, area: Rect) {
-        frame.render_widget(ContentWidget::default(), area);
+        Clusters::new().draw(frame, area);
     }
 }
 
