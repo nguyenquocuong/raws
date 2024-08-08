@@ -4,7 +4,6 @@ use ratatui::layout::Rect;
 use ratatui::Frame;
 use tokio::sync::mpsc::UnboundedSender;
 
-pub mod clusters;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {

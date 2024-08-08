@@ -51,6 +51,8 @@ pub struct App {
     event_rx: UnboundedReceiver<Event>,
     action_tx: UnboundedSender<Action>,
     action_rx: UnboundedReceiver<Action>,
+
+    cluster_component: Clusters,
 }
 
 impl App {
@@ -67,6 +69,7 @@ impl App {
             event_rx,
             action_tx,
             action_rx,
+            cluster_component: Clusters::new(),
         }
     }
 
@@ -119,7 +122,7 @@ impl App {
         }
     }
 
-    fn draw(&self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
+    fn draw(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
         terminal.draw(|frame| self.render_frame(frame))?;
         Ok(())
     }
@@ -136,6 +139,8 @@ impl App {
             Event::Key(key) => self.handle_key_event(key)?,
             _ => {}
         };
+
+        self.cluster_component.handle_events(Some(event.clone()));
 
         Ok(())
     }
@@ -166,7 +171,7 @@ impl App {
         Ok(())
     }
 
-    fn render_frame(&self, frame: &mut Frame) {
+    fn render_frame(&mut self, frame: &mut Frame) {
         let [context, content] =
             Layout::vertical([Constraint::Percentage(20), Constraint::Percentage(80)])
                 .areas(frame.size());
@@ -193,8 +198,8 @@ impl App {
         frame.render_widget(LogoWidget::default(), logo_area);
     }
 
-    fn draw_content_block(&self, frame: &mut Frame, area: Rect) {
-        Clusters::new().draw(frame, area);
+    fn draw_content_block(&mut self, frame: &mut Frame, area: Rect) {
+        self.cluster_component.draw(frame, area);
     }
 }
 
