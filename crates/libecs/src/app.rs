@@ -20,7 +20,8 @@ use tokio::{
 };
 
 use crate::{
-    components::{clusters::Clusters, Action, Component, Event},
+    components::{clusters::Clusters, Component, Event},
+    state_store::{action::Action, State, StateStore},
     ui::{Context, KeybindingsWidget, LogoWidget},
 };
 
@@ -31,10 +32,11 @@ pub async fn run_app() -> Result<()> {
     terminal.clear()?;
 
     let config = aws_config::load_from_env().await;
-    let mut app = App::new(config);
+    let (state_store, state_tx) = StateStore::new(config);
+    let (mut app, action_rx) = App::new(state_tx);
 
-    //app.get_caller_identity().await;
-    app.run(&mut terminal).await?;
+    tokio::try_join!(app.run(&mut terminal), state_store.event_loop(action_rx))?;
+    //app.run(&mut terminal).await?;
 
     stdout().execute(LeaveAlternateScreen)?;
     disable_raw_mode()?;
@@ -43,39 +45,36 @@ pub async fn run_app() -> Result<()> {
 }
 
 pub struct App {
-    config: SdkConfig,
-    iam_arn: String,
     should_quit: bool,
     task: JoinHandle<()>,
     event_tx: UnboundedSender<Event>,
     event_rx: UnboundedReceiver<Event>,
     action_tx: UnboundedSender<Action>,
-    action_rx: UnboundedReceiver<Action>,
+    state_rx: UnboundedReceiver<State>,
 
     cluster_component: Clusters,
 }
 
 impl App {
-    pub fn new(config: SdkConfig) -> Self {
+    pub fn new(state_rx: UnboundedReceiver<State>) -> (Self, UnboundedReceiver<Action>) {
         let (event_tx, event_rx) = mpsc::unbounded_channel();
         let (action_tx, action_rx) = mpsc::unbounded_channel();
 
-        Self {
-            config,
-            iam_arn: String::from(""),
-            should_quit: false,
-            task: tokio::spawn(async {}),
-            event_tx,
-            event_rx,
-            action_tx,
+        (
+            Self {
+                should_quit: false,
+                task: tokio::spawn(async {}),
+                event_tx,
+                event_rx,
+                action_tx,
+                state_rx,
+                cluster_component: Clusters::new(),
+            },
             action_rx,
-            cluster_component: Clusters::new(),
-        }
+        )
     }
 
     pub async fn run(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
-        self.get_caller_identity().await;
-
         let event_loop = Self::event_loop(self.event_tx.clone());
 
         self.task = tokio::spawn(async {
@@ -85,7 +84,7 @@ impl App {
         loop {
             self.draw(terminal)?;
             self.handle_events().await?;
-            self.handle_actions().await?;
+            //self.handle_actions().await?;
             if self.should_quit {
                 break;
             }
@@ -135,7 +134,7 @@ impl App {
 
         match event {
             Event::Quit => action_tx.send(Action::Quit)?,
-            Event::Tick => action_tx.send(Action::Tick)?,
+            //Event::Tick => action_tx.send(Action::Tick)?,
             Event::Key(key) => self.handle_key_event(key)?,
             _ => {}
         };
@@ -155,21 +154,21 @@ impl App {
         Ok(())
     }
 
-    async fn handle_actions(&mut self) -> Result<()> {
-        while let Ok(action) = self.action_rx.try_recv() {
-            if action != Action::Tick {
-                println!("{action:?}");
-            }
-
-            match action {
-                Action::Quit => self.should_quit = true,
-                Action::Render => {}
-                _ => {}
-            }
-        }
-
-        Ok(())
-    }
+    //async fn handle_actions(&mut self) -> Result<()> {
+    //    while let Ok(action) = self.action_rx.try_recv() {
+    //        if action != Action::Tick {
+    //            println!("{action:?}");
+    //        }
+    //
+    //        match action {
+    //            Action::Quit => self.should_quit = true,
+    //            Action::Render => {}
+    //            _ => {}
+    //        }
+    //    }
+    //
+    //    Ok(())
+    //}
 
     fn render_frame(&mut self, frame: &mut Frame) {
         let [context, content] =
@@ -191,7 +190,7 @@ impl App {
         let mut context = Context::default();
         context.init().unwrap();
         context
-            .iam_arn(self.iam_arn.clone())
+            //.iam_arn(self.iam_arn.clone())
             .draw(frame, context_area);
 
         frame.render_widget(KeybindingsWidget::default(), keybindings_area);
@@ -200,15 +199,5 @@ impl App {
 
     fn draw_content_block(&mut self, frame: &mut Frame, area: Rect) {
         self.cluster_component.draw(frame, area);
-    }
-}
-
-impl App {
-    async fn get_caller_identity(&mut self) {
-        let sts_client = aws_sdk_sts::Client::new(&self.config);
-
-        let caller_identity = sts_client.get_caller_identity().send().await.unwrap();
-
-        self.iam_arn = caller_identity.arn().unwrap().to_string();
     }
 }
