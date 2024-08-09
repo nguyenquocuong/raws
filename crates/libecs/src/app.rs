@@ -1,7 +1,6 @@
 use color_eyre::Result;
 use std::io::stdout;
 
-use aws_config::SdkConfig;
 use crossterm::event::{Event as CrosstermEvent, EventStream, KeyCode, KeyEvent};
 use futures::{FutureExt, StreamExt};
 use ratatui::{
@@ -15,14 +14,18 @@ use ratatui::{
     Frame, Terminal,
 };
 use tokio::{
-    sync::mpsc::{self, UnboundedReceiver, UnboundedSender},
+    sync::{
+        broadcast,
+        mpsc::{self, UnboundedReceiver, UnboundedSender},
+    },
     task::JoinHandle,
 };
 
 use crate::{
-    components::{clusters::Clusters, Component, Event},
+    components::{clusters::Clusters, context::Context, Component, Event},
     state_store::{action::Action, State, StateStore},
-    ui::{Context, KeybindingsWidget, LogoWidget},
+    termination::{create_termination, Interrupted},
+    ui::{KeybindingsWidget, LogoWidget},
 };
 
 pub async fn run_app() -> Result<()> {
@@ -32,11 +35,24 @@ pub async fn run_app() -> Result<()> {
     terminal.clear()?;
 
     let config = aws_config::load_from_env().await;
-    let (state_store, state_tx) = StateStore::new(config);
-    let (mut app, action_rx) = App::new(state_tx);
 
-    tokio::try_join!(app.run(&mut terminal), state_store.event_loop(action_rx))?;
-    //app.run(&mut terminal).await?;
+    let (terminator, mut interrupt_rx) = create_termination();
+    let (state_store, state_rx) = StateStore::new(config);
+    let (mut app, action_rx) = App::new(state_rx);
+
+    tokio::try_join!(
+        state_store.event_loop(terminator, action_rx, interrupt_rx.resubscribe()),
+        app.run(&mut terminal, interrupt_rx.resubscribe()),
+    )?;
+
+    if let Ok(reason) = interrupt_rx.recv().await {
+        match reason {
+            Interrupted::UserInt => println!("exited per user request"),
+            Interrupted::OsSigInt => println!("exited because of an os sig int"),
+        }
+    } else {
+        println!("exited because of an unexpected error");
+    }
 
     stdout().execute(LeaveAlternateScreen)?;
     disable_raw_mode()?;
@@ -45,13 +61,13 @@ pub async fn run_app() -> Result<()> {
 }
 
 pub struct App {
-    should_quit: bool,
     task: JoinHandle<()>,
     event_tx: UnboundedSender<Event>,
     event_rx: UnboundedReceiver<Event>,
     action_tx: UnboundedSender<Action>,
     state_rx: UnboundedReceiver<State>,
 
+    context_component: Context,
     cluster_component: Clusters,
 }
 
@@ -62,43 +78,66 @@ impl App {
 
         (
             Self {
-                should_quit: false,
                 task: tokio::spawn(async {}),
                 event_tx,
                 event_rx,
                 action_tx,
                 state_rx,
+                context_component: Context::default(),
                 cluster_component: Clusters::new(),
             },
             action_rx,
         )
     }
 
-    pub async fn run(&mut self, terminal: &mut Terminal<impl Backend>) -> Result<()> {
-        let event_loop = Self::event_loop(self.event_tx.clone());
+    pub async fn run(
+        &mut self,
+        terminal: &mut Terminal<impl Backend>,
+        mut interrupt_rx: broadcast::Receiver<Interrupted>,
+    ) -> Result<Interrupted> {
+        self.task = tokio::spawn(Self::event_loop(self.event_tx.clone()));
 
-        self.task = tokio::spawn(async {
-            event_loop.await;
-        });
+        self.context_component
+            .register_action_handler(self.action_tx.clone())?;
+        self.cluster_component
+            .register_action_handler(self.action_tx.clone())?;
 
-        loop {
-            self.draw(terminal)?;
-            self.handle_events().await?;
-            //self.handle_actions().await?;
-            if self.should_quit {
-                break;
+        self.context_component.init()?;
+        self.cluster_component.init()?;
+
+        let result: Result<Interrupted> = loop {
+            tokio::select! {
+                Some(event) = self.event_rx.recv() => {
+                    let action_tx = self.action_tx.clone();
+
+                    match event {
+                        Event::Quit => action_tx.send(Action::Quit)?,
+                        Event::Key(key) => self.handle_key_event(key)?,
+                        _ => {}
+                    };
+
+                    self.cluster_component.handle_events(Some(event.clone()));
+                },
+                Some(state) = self.state_rx.recv() => {
+                    //println!("{state:?}");
+                    self.context_component.move_with_state(&state);
+                },
+                Ok(interrupted) = interrupt_rx.recv() => {
+                    break Ok(interrupted);
+                }
             }
-        }
+
+            self.draw(terminal)?;
+        };
+
         self.task.abort();
-        Ok(())
+
+        result
     }
 
     async fn event_loop(event_tx: UnboundedSender<Event>) {
         let mut event_stream = EventStream::new();
 
-        event_tx
-            .send(Event::Init)
-            .expect("failed to send init event");
         loop {
             let event = tokio::select! {
                 crossterm_event = event_stream.next().fuse() => match crossterm_event {
@@ -126,24 +165,6 @@ impl App {
         Ok(())
     }
 
-    async fn handle_events(&mut self) -> Result<()> {
-        let Some(event) = self.event_rx.recv().await else {
-            return Ok(());
-        };
-        let action_tx = self.action_tx.clone();
-
-        match event {
-            Event::Quit => action_tx.send(Action::Quit)?,
-            //Event::Tick => action_tx.send(Action::Tick)?,
-            Event::Key(key) => self.handle_key_event(key)?,
-            _ => {}
-        };
-
-        self.cluster_component.handle_events(Some(event.clone()));
-
-        Ok(())
-    }
-
     fn handle_key_event(&mut self, key: KeyEvent) -> Result<()> {
         let action_tx = self.action_tx.clone();
 
@@ -154,22 +175,6 @@ impl App {
         Ok(())
     }
 
-    //async fn handle_actions(&mut self) -> Result<()> {
-    //    while let Ok(action) = self.action_rx.try_recv() {
-    //        if action != Action::Tick {
-    //            println!("{action:?}");
-    //        }
-    //
-    //        match action {
-    //            Action::Quit => self.should_quit = true,
-    //            Action::Render => {}
-    //            _ => {}
-    //        }
-    //    }
-    //
-    //    Ok(())
-    //}
-
     fn render_frame(&mut self, frame: &mut Frame) {
         let [context, content] =
             Layout::vertical([Constraint::Percentage(20), Constraint::Percentage(80)])
@@ -179,7 +184,7 @@ impl App {
         self.draw_content_block(frame, content);
     }
 
-    fn draw_context(&self, frame: &mut Frame, area: Rect) {
+    fn draw_context(&mut self, frame: &mut Frame, area: Rect) {
         let [context_area, keybindings_area, logo_area] = Layout::horizontal([
             Constraint::Percentage(40),
             Constraint::Percentage(10),
@@ -187,11 +192,7 @@ impl App {
         ])
         .areas(area);
 
-        let mut context = Context::default();
-        context.init().unwrap();
-        context
-            //.iam_arn(self.iam_arn.clone())
-            .draw(frame, context_area);
+        self.context_component.draw(frame, context_area);
 
         frame.render_widget(KeybindingsWidget::default(), keybindings_area);
         frame.render_widget(LogoWidget::default(), logo_area);

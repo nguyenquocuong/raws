@@ -1,5 +1,6 @@
 mod components;
 mod state_store;
+mod termination;
 mod ui;
 
 pub mod app;

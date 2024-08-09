@@ -10,12 +10,12 @@ use ratatui::{
 };
 use tokio::sync::mpsc::UnboundedSender;
 
-use crate::state_store::ClusterItem;
+use crate::state_store::{action::Action, ClusterItem, State};
 
-use super::{Action, Component};
+use super::Component;
 
 pub struct Clusters {
-    command_tx: Option<UnboundedSender<Action>>,
+    action_tx: Option<UnboundedSender<Action>>,
     table_state: TableState,
     items: Vec<ClusterItem>,
 }
@@ -23,7 +23,7 @@ pub struct Clusters {
 impl Clusters {
     pub fn new() -> Self {
         Self {
-            command_tx: None,
+            action_tx: None,
             table_state: TableState::default().with_selected(None),
             items: vec![
                 ClusterItem {
@@ -70,15 +70,19 @@ impl Clusters {
 
 impl Component for Clusters {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
-        self.command_tx = Some(tx);
+        self.action_tx = Some(tx);
         Ok(())
     }
 
     fn init(&mut self) -> Result<()> {
-        if let Some(tx) = self.command_tx.clone() {
+        if let Some(tx) = self.action_tx.clone() {
             tx.send(Action::GetClusters)?;
         }
         Ok(())
+    }
+
+    fn move_with_state(&mut self, state: &State) {
+        
     }
 
     fn update(&mut self, action: Action) -> Action {

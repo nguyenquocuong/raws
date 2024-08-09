@@ -4,6 +4,8 @@ use ratatui::layout::Rect;
 use ratatui::Frame;
 use tokio::sync::mpsc::UnboundedSender;
 
+use crate::state_store::action::Action;
+use crate::state_store::State;
 
 #[derive(Clone, Debug, PartialEq)]
 pub enum Event {
@@ -19,23 +21,15 @@ pub enum Event {
     Error,
 }
 
-#[derive(Clone, Debug, PartialEq)]
-pub enum Action {
-    Noop,
-    Quit,
-    Tick,
-    Render,
-    GetClusters,
-}
-
 pub trait Component {
-    fn init(&mut self) -> Result<()> {
-        Ok(())
-    }
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
         let _ = tx; // to appease clippy
         Ok(())
     }
+    fn init(&mut self) -> Result<()> {
+        Ok(())
+    }
+    fn move_with_state(&mut self, state: &State);
     fn handle_events(&mut self, event: Option<Event>) -> Action {
         match event {
             Some(Event::Key(key_event)) => self.handle_key_event(key_event),

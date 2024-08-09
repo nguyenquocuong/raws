@@ -1,4 +1,10 @@
+#[derive(Debug, Clone, PartialEq)]
 pub enum Action {
-    GetClusters,
+    Noop,
     Quit,
+    Tick,
+    Render,
+
+    GetContextInfo,
+    GetClusters,
 }

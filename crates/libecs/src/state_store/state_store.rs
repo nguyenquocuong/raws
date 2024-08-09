@@ -1,8 +1,11 @@
 use aws_config::SdkConfig;
 use color_eyre::Result;
-use tokio::sync::mpsc::{self, UnboundedReceiver, UnboundedSender};
+use tokio::sync::{
+    broadcast,
+    mpsc::{self, UnboundedReceiver, UnboundedSender},
+};
 
-use crate::state_store::ContextInfo;
+use crate::termination::{Interrupted, Terminator};
 
 use super::{action::Action, state::State};
 
@@ -17,26 +20,41 @@ impl StateStore {
         (StateStore { config, state_tx }, state_rx)
     }
 
-    pub async fn event_loop(&self, mut action_rx: UnboundedReceiver<Action>) -> Result<()> {
+    pub async fn event_loop(
+        &self,
+        mut terminator: Terminator,
+        mut action_rx: UnboundedReceiver<Action>,
+        mut interrupt_rx: broadcast::Receiver<Interrupted>,
+    ) -> Result<Interrupted> {
         let mut state = State::default();
 
         self.state_tx.send(state.clone())?;
 
-        loop {
+        let result = loop {
             tokio::select! {
                 Some(action) = action_rx.recv() => match action {
-                    Action::GetClusters => {
+                    Action::GetContextInfo => {
                         let sts_client = aws_sdk_sts::Client::new(&self.config);
                         let caller_identity = sts_client.get_caller_identity().send().await.unwrap();
-                        state.context_info = Some(ContextInfo {caller_identity});
+
+                        state.caller_arn = caller_identity.clone().arn;
+
+                        self.state_tx.send(state.clone())?;
                     }
                     Action::Quit => {
-                        break;
+                        let _ = terminator.terminate(Interrupted::UserInt);
+                        break Interrupted::UserInt;
                     }
+                    _ => {}
                 },
+                Ok(interrupted) = interrupt_rx.recv() => {
+                    break interrupted;
+                }
             }
-        }
 
-        Ok(())
+            self.state_tx.send(state.clone())?;
+        };
+
+        Ok(result)
     }
 }
