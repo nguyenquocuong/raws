@@ -14,35 +14,45 @@ use crate::state_store::{action::Action, ClusterItem, State};
 
 use super::Component;
 
+#[derive(Default)]
+struct Props {
+    clusters: Vec<ClusterItem>,
+}
+
+impl From<&State> for Props {
+    fn from(state: &State) -> Self {
+        let clusters = state
+            .cluster_arns
+            .clone()
+            .iter()
+            .map(|arn| ClusterItem::from(arn.clone()))
+            .collect::<Vec<ClusterItem>>();
+
+        //clusters.sort_by(|room_a, room_b| room_a.name.cmp(&room_b.name));
+
+        Self { clusters }
+    }
+}
+
 pub struct Clusters {
     action_tx: Option<UnboundedSender<Action>>,
+    props: Props,
     table_state: TableState,
-    items: Vec<ClusterItem>,
 }
 
 impl Clusters {
     pub fn new() -> Self {
         Self {
             action_tx: None,
+            props: Props::default(),
             table_state: TableState::default().with_selected(None),
-            items: vec![
-                ClusterItem {
-                    name: "develop".to_string(),
-                },
-                ClusterItem {
-                    name: "staging".to_string(),
-                },
-                ClusterItem {
-                    name: "production".to_string(),
-                },
-            ],
         }
     }
 
     fn next(&mut self) {
         let i = match self.table_state.selected() {
             Some(i) => {
-                if i >= self.items.len() - 1 {
+                if i >= self.props.clusters.len() - 1 {
                     i
                 } else {
                     i + 1
@@ -62,7 +72,7 @@ impl Clusters {
                     i - 1
                 }
             }
-            None => self.items.len() - 1,
+            None => self.props.clusters.len() - 1,
         };
         self.table_state.select(Some(i))
     }
@@ -81,8 +91,8 @@ impl Component for Clusters {
         Ok(())
     }
 
-    fn move_with_state(&mut self, state: &State) {
-        
+    fn set_state(&mut self, state: &State) {
+        self.props = Props::from(state);
     }
 
     fn update(&mut self, action: Action) -> Action {
@@ -109,6 +119,7 @@ impl Component for Clusters {
     }
 
     fn draw(&mut self, frame: &mut Frame, rect: Rect) {
+        //println!("{:?}", self.props.clusters);
         let selected_style = Style::default()
             .add_modifier(Modifier::REVERSED)
             .fg(tailwind::CYAN.c100);
@@ -119,7 +130,7 @@ impl Component for Clusters {
                 .bg(tailwind::CYAN.c200)
                 .fg(tailwind::BLACK),
         );
-        let rows = self.items.iter().map(|data| {
+        let rows = self.props.clusters.iter().map(|data| {
             let item = [&data.name];
             item.into_iter()
                 .map(|content| Cell::from(Text::from(content.clone())))
@@ -133,7 +144,7 @@ impl Component for Clusters {
         frame.render_stateful_widget(
             t.block(
                 Block::bordered()
-                    .title(format!(" {} ", "Clusters[3]"))
+                    .title(format!(" Clusters[{}] ", self.props.clusters.len()))
                     .title_alignment(Alignment::Center)
                     .style(Style::default().bold().fg(tailwind::CYAN.c200)),
             ),

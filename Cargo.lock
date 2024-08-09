@@ -169,9 +169,9 @@ dependencies = [
 
 [[package]]
 name = "aws-sdk-ecs"
-version = "1.37.0"
+version = "1.38.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "8ea694d7331974527336c5532a6751a569814e1790b1be1cf6deae936bddf801"
+checksum = "dfcf9586e9d23bfb73f2bc8dff2d84ac6aa05318a9a63dc2694fe6e46accefa4"
 dependencies = [
  "aws-credential-types",
  "aws-runtime",
@@ -1099,6 +1099,7 @@ name = "libecs"
 version = "0.1.0"
 dependencies = [
  "aws-config",
+ "aws-sdk-ecs",
  "aws-sdk-sts",
  "color-eyre",
  "crossterm",

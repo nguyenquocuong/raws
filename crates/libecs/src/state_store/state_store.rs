@@ -41,6 +41,15 @@ impl StateStore {
 
                         self.state_tx.send(state.clone())?;
                     }
+                    Action::GetClusters => {
+                        let ecs_client = aws_sdk_ecs::Client::new(&self.config);
+                        let clusters = ecs_client.list_clusters().send().await.unwrap();
+
+                        if let Some(clusters_arns) = clusters.cluster_arns {
+                            state.cluster_arns = clusters_arns.clone();
+                            self.state_tx.send(state.clone())?;
+                        }
+                    }
                     Action::Quit => {
                         let _ = terminator.terminate(Interrupted::UserInt);
                         break Interrupted::UserInt;

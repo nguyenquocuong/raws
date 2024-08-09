@@ -5,6 +5,7 @@ edition = "2021"
 
 [dependencies]
 aws-config = "1.5.4"
+aws-sdk-ecs = "1.38.0"
 aws-sdk-sts = "1.36.0"
 color-eyre = "0.6.3"
 crossterm = { version = "0.27.0", features = ["event-stream"] }

@@ -116,11 +116,13 @@ impl App {
                         _ => {}
                     };
 
+                    self.context_component.handle_events(Some(event.clone()));
                     self.cluster_component.handle_events(Some(event.clone()));
                 },
                 Some(state) = self.state_rx.recv() => {
                     //println!("{state:?}");
-                    self.context_component.move_with_state(&state);
+                    self.context_component.set_state(&state);
+                    self.cluster_component.set_state(&state);
                 },
                 Ok(interrupted) = interrupt_rx.recv() => {
                     break Ok(interrupted);

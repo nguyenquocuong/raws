@@ -23,13 +23,13 @@ pub enum Event {
 
 pub trait Component {
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
-        let _ = tx; // to appease clippy
+        let _ = tx;
         Ok(())
     }
     fn init(&mut self) -> Result<()> {
         Ok(())
     }
-    fn move_with_state(&mut self, state: &State);
+    fn set_state(&mut self, state: &State);
     fn handle_events(&mut self, event: Option<Event>) -> Action {
         match event {
             Some(Event::Key(key_event)) => self.handle_key_event(key_event),

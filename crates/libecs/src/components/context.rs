@@ -21,7 +21,6 @@ impl From<&State> for Props {
     fn from(state: &State) -> Self {
         Props {
             arn: state.caller_arn.clone(),
-            //arn: state.context_info.clone().unwrap().caller_identity.arn,
         }
     }
 }
@@ -33,12 +32,8 @@ pub struct Context {
 }
 
 impl Component for Context {
-    fn move_with_state(&mut self, state: &State) {
+    fn set_state(&mut self, state: &State) {
         self.props = Props::from(state);
-        //Self {
-        //    props: Props::from(state),
-        //    ..self
-        //}
     }
 
     fn register_action_handler(&mut self, tx: UnboundedSender<Action>) -> Result<()> {
